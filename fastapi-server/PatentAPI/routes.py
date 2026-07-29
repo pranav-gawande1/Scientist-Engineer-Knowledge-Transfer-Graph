@@ -102,36 +102,68 @@ def model_info():
         "cutoff_year":     meta.get("cutoff_year"),
         "test_metrics":    meta.get("test_metrics", {}),
     }
+# @patent_router.post("/predict", response_model=PredictionResponse, tags=["Prediction"])
+# def predict(paper: PaperInput):
+#     """
+#     Full prediction — accepts all structured metadata alongside text.
+
+#     Provide as much of title, abstract, and keywords as possible for
+#     best accuracy. Structured fields (year, cited, novelty, etc.) are
+#     optional but improve predictions when available.
+#     """
+#     if not paper.title and not paper.abstract and not paper.keywords:
+#         raise HTTPException(
+#             status_code=422,
+#             detail="Provide at least one of: title, abstract, keywords."
+#         )
+#     t0     = time.perf_counter()
+#     result = _run_inference(paper)
+#     result["latency_ms"] = round((time.perf_counter() - t0) * 1000, 2)
+#     log.info(
+#         f"/predict  prob={result['probability']:.3f}  "
+#         f"conf={result['confidence']}  {result['latency_ms']}ms"
+#     )
+#     return result
+
+from .HuggingFace.patent_model_client import predict_patent
 
 
-@patent_router.post("/predict", response_model=PredictionResponse, tags=["Prediction"])
+@patent_router.post(
+    "/predict",
+    response_model=PredictionResponse,
+    tags=["Prediction"],
+)
 def predict(paper: PaperInput):
-    """
-    **Full prediction** — accepts all structured metadata alongside text.
 
-    Provide as much of `title`, `abstract`, and `keywords` as possible for
-    best accuracy. Structured fields (`year`, `cited`, `novelty`, etc.) are
-    optional but improve predictions when available.
-    """
-    if not paper.title and not paper.abstract and not paper.keywords:
-        raise HTTPException(
-            status_code=422,
-            detail="Provide at least one of: title, abstract, keywords."
+    try:
+        result = predict_patent(
+            title=paper.title,
+            abstract=paper.abstract,
+            keywords=paper.keywords,
+            year=paper.year,
+            cited=paper.cited,
+            novelty=paper.novelty,
+            source=paper.source,
+            past_patent_cnt=paper.past_patent_cnt,
+            avg_past_sim=paper.avg_past_sim,
+            max_past_sim=paper.max_past_sim,
         )
-    t0     = time.perf_counter()
-    result = _run_inference(paper)
-    result["latency_ms"] = round((time.perf_counter() - t0) * 1000, 2)
-    log.info(
-        f"/predict  prob={result['probability']:.3f}  "
-        f"conf={result['confidence']}  {result['latency_ms']}ms"
-    )
-    return result
+
+        return result
+
+    except Exception as exc:
+        log.exception("Patent model request failed")
+
+        raise HTTPException(
+            status_code=502,
+            detail="Patent prediction service is unavailable.",
+        ) from exc
 
 
 @patent_router.post("/predict/text", response_model=PredictionResponse, tags=["Prediction"])
 def predict_text(inp: TextOnlyInput):
     """
-    **Text-only prediction** — supply just title, abstract, and keywords.
+    Text-only prediction — supply just title, abstract, and keywords.
 
     All structured metadata (year, citations, novelty, etc.) default to zero.
     Ideal for quickly screening papers when only the text is available.
@@ -154,9 +186,9 @@ def predict_text(inp: TextOnlyInput):
 @patent_router.post("/predict/batch", response_model=BatchResponse, tags=["Prediction"])
 def predict_batch(batch: BatchInput):
     """
-    **Batch prediction** — submit up to 100 papers in a single request.
+    Batch prediction — submit up to 100 papers in a single request.
 
-    Each paper uses the same full schema as `/predict`.
+    Each paper uses the same full schema as /predict.
     Results are returned in the same order as the input list.
     """
     t0      = time.perf_counter()
