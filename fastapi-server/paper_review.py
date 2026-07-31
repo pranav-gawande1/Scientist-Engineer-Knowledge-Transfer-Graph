@@ -29,7 +29,7 @@ from services.ai_service import AIClient
 
 from fastapi import APIRouter, File, Form, HTTPException, UploadFile
 from fastapi.responses import JSONResponse
-from openai import OpenAI
+# from openai import OpenAI
 
 # ── Router ─────────────────────────────────────────────────────────────────────
 router = APIRouter(prefix="/paper-review", tags=["Paper Review"])
@@ -174,11 +174,92 @@ Be thorough and flag every suspicious pattern you detect. Do not be lenient.
 
 Respond ONLY with valid JSON matching the schema in the system prompt."""
 
+# ══════════════════════════════════════════════════════════════════════════════
+# Technical Review
+# ══════════════════════════════════════════════════════════════════════════════
+TECHNICAL_REVIEW_SYSTEM_PROMPT = """
+You are a senior academic reviewer with over 20 years of experience reviewing research papers for IEEE, ACM, Springer, Elsevier, NeurIPS, ICML, ACL, CVPR, and Nature conferences and journals.
+
+Your task is NOT to summarize the paper.
+
+Your task is to perform a rigorous technical review and generate actionable reviewer comments exactly as a conference reviewer would.
+
+Instructions:
+
+1. Critically evaluate the paper based only on the provided content.
+2. Do not invent missing information.
+3. Do not praise the paper unnecessarily.
+4. Only report issues that are actually supported by evidence in the manuscript.
+5. Every observation must be specific and technically justified.
+6. Avoid generic comments such as "Improve methodology" unless you explain WHY.
+7. Focus on improvements that would increase the probability of publication.
+8. If a particular aspect is strong, do not mention it in the weaknesses.
+9. If an issue cannot be determined from the paper, state that it could not be assessed.
+10. Write comments in formal reviewer language suitable for an IEEE or ACM conference.
+
+Evaluate the paper across the following aspects:
+
+• Novelty and Originality
+• Problem Statement
+• Research Objectives
+• Literature Review
+• Methodology
+• Technical Soundness
+• Experimental Design
+• Dataset Quality
+• Baselines and Comparative Analysis
+• Statistical Validation
+• Result Interpretation
+• Discussion
+• Reproducibility
+• Figures and Tables
+• Writing Quality
+• Organization
+• References
+• Limitations
+• Practical Impact
+
+Return ONLY valid JSON.
+
+{
+  "review_comments":[
+    {
+      "id":1,
+      "category":"Novelty",
+      "severity":"Critical | Major | Minor",
+      "comment":"Reviewer comment",
+      "recommendation":"Specific improvement"
+    }
+  ]
+}
+"""
+TECHNICAL_REVIEW_USER_PROMPT = """
+Review the following research paper as an expert conference reviewer.
+
+Identify ONLY the weaknesses, deficiencies, missing components, unsupported claims, methodological issues, experimental limitations, writing problems, and publication risks.
+
+Do NOT generate positive feedback.
+
+Generate between 8 and 15 reviewer comments depending on the quality of the manuscript.
+
+Each comment should:
+
+• Identify one issue.
+• Explain why it is a problem.
+• Suggest a concrete improvement.
+• Be technically detailed.
+• Be suitable for inclusion in an official conference review.
+
+--- PAPER TEXT START ---
+{text}
+--- PAPER TEXT END ---
+"""
 
 # ══════════════════════════════════════════════════════════════════════════════
 #  PDF EXTRACTION HELPERS
 # ══════════════════════════════════════════════════════════════════════════════
 
+MAX_CHARS = 25000  # ~6000-7000 tokens
 
 def extract_text_from_pdf(pdf_bytes: bytes) -> str:
     """Extract full text from all pages using PyMuPDF."""
@@ -191,8 +272,8 @@ def extract_text_from_pdf(pdf_bytes: bytes) -> str:
     doc.close()
     full_text = "\n\n".join(pages_text)
     # Truncate to ~120k chars to stay within GPT-4o context limits
-    if len(full_text) > 120_000:
-        full_text = full_text[:120_000] + "\n\n[... truncated for token limits ...]"
+    if len(full_text) > MAX_CHARS:
+        full_text = full_text[:MAX_CHARS] + "\n\n[... truncated for token limits ...]"
     return full_text
 
 
@@ -516,6 +597,56 @@ async def plagiarism_only(
             "plagiarism_analysis": plagiarism_data,
         }
     )
+
+
+# techinical review
+@router.post(
+    "/technical-review",
+    summary="Technical Review",
+    description="Give technical review of paper rather than of grammar and plagarism",
+)
+async def plagiarism_only(
+    file: UploadFile = File(..., description="Research paper PDF"),
+):
+    if not file.filename.lower().endswith(".pdf"):
+        raise HTTPException(status_code=400, detail="Only PDF files are accepted.")
+
+    pdf_bytes = await file.read()
+    if not pdf_bytes:
+        raise HTTPException(status_code=400, detail="Uploaded file is empty.")
+
+    try:
+        text = extract_text_from_pdf(pdf_bytes)
+    except Exception as e:
+        raise HTTPException(status_code=422, detail=f"PDF text extraction failed: {e}")
+
+    if len(text.strip()) < 200:
+        raise HTTPException(status_code=422, detail="Could not extract readable text.")
+
+    metadata = get_pdf_metadata(pdf_bytes)
+    plagiarism_prompt = TECHNICAL_REVIEW_USER_PROMPT.format(text=text)
+    client = get_ai_client()
+    try:
+        plag_content = plagiarism_prompt
+        technical_review_data, usage = call_gpt(
+            client, TECHNICAL_REVIEW_SYSTEM_PROMPT, plag_content, max_tokens=2500
+        )
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"OpenAI API error: {e}")
+
+    return JSONResponse(
+        content={
+            "status": "success",
+            "file": {
+                "name": file.filename,
+                "pages": metadata["page_count"],
+                "word_count": metadata["word_count"],
+            },
+            "tokens_used": usage,
+            "technical_review": technical_review_data,
+        }
+    )
+
 
 
 # ── Health ─────────────────────────────────────────────────────────────────────

@@ -4,7 +4,7 @@ import { FileText, ShieldAlert, Sparkles, Upload } from "lucide-react";
 import VerdictCard from "../components/PaperReview/VerdictCard";
 import ScoreCard from "../components/PaperReview/ScoreCard";
 import PlagiarismSignalsTable from "../components/PaperReview/PlagiarismSignalsTable";
-import { reviewPaper, reviewOnly, plagiarismOnly } from "../services/paperReview";
+import { reviewPaper, reviewOnly, plagiarismOnly, technicalReviewOnly } from "../services/paperReview";
 
 const PaperReviewPage: React.FC = () => {
 
@@ -20,7 +20,8 @@ const PaperReviewPage: React.FC = () => {
     const [mode, setMode] = useState<
         "full" |
         "review" |
-        "plagiarism"
+        "plagiarism" |
+        "technical"
     >("full");
 
     const handleAnalyze = async () => {
@@ -45,9 +46,18 @@ const PaperReviewPage: React.FC = () => {
                     await reviewOnly(file);
             }
 
-            else {
+            else if (
+                mode === "plagiarism"
+            ) {
                 result =
                     await plagiarismOnly(
+                        file
+                    );
+            }
+
+            else {
+                result =
+                    await technicalReviewOnly(
                         file
                     );
             }
@@ -82,7 +92,7 @@ const PaperReviewPage: React.FC = () => {
 
             </div>
 
-            <div className="grid md:grid-cols-3 gap-4 mb-6">
+            <div className="grid md:grid-cols-4 gap-4 mb-6">
 
                 <button
                     onClick={() =>
@@ -140,43 +150,25 @@ const PaperReviewPage: React.FC = () => {
                     </p>
                 </button>
 
+                <button
+                    onClick={() => setMode("technical")}
+                    className={`p-4 rounded-xl border transition-all ${mode === "technical"
+                        ? "border-primary bg-primary/10"
+                        : "border-white/10"
+                        }`}
+                >
+                    <p className="font-semibold">
+                        Technical Review
+                    </p>
+
+                    <p className="text-xs text-gray-400 mt-1">
+                        Reviewer Comments
+                    </p>
+                </button>
+
             </div>
 
             {/* Upload Card */}
-
-            {/* <div className="bg-surface-container rounded-2xl p-8 ghost-border mb-10">
-
-                <div className="flex items-center gap-3 mb-4">
-
-                    <Upload className="text-primary" />
-
-                    <h2 className="font-bold text-xl">
-                        Upload Research Paper
-                    </h2>
-
-                </div>
-
-                <input
-                    type="file"
-                    accept=".pdf"
-                    onChange={(e) =>
-                        setFile(
-                            e.target.files?.[0] || null
-                        )
-                    }
-                />
-
-                <button
-                    onClick={handleAnalyze}
-                    disabled={loading}
-                    className="mt-6 px-6 py-3 bg-primary rounded-xl font-bold"
-                >
-                    {loading
-                        ? "Analyzing..."
-                        : "Analyze Paper"}
-                </button>
-
-            </div> */}
 
             <div className="glass-panel ghost-border rounded-3xl p-8 mb-10">
 
@@ -256,7 +248,7 @@ const PaperReviewPage: React.FC = () => {
                 </label>
 
                 {/* Features */}
-                <div className="grid md:grid-cols-3 gap-4 mt-6">
+                <div className="grid md:grid-cols-4 gap-4 mt-6">
 
                     <div className="rounded-xl bg-[#111827] p-4 border border-white/5">
                         <p className="font-medium text-white">
@@ -282,6 +274,16 @@ const PaperReviewPage: React.FC = () => {
                         </p>
                         <p className="text-xs text-gray-400 mt-1">
                             Accept / Reject recommendation with rationale.
+                        </p>
+                    </div>
+
+                    <div className="rounded-xl bg-[#111827] p-4 border border-white/5">
+                        <p className="font-medium text-white">
+                            Technical Review
+                        </p>
+
+                        <p className="text-xs text-gray-400 mt-1">
+                            Detailed reviewer comments with actionable improvements.
                         </p>
                     </div>
 
@@ -322,14 +324,16 @@ const PaperReviewPage: React.FC = () => {
                                     ? "Run Full Analysis"
                                     : mode === "review"
                                         ? "Run Peer Review"
-                                        : "Run Plagiarism Check"
+                                        : mode === "plagiarism"
+                                            ? "Run Plagiarism Check"
+                                            : "Run Technical Review"
                             }
                         </>
                     )}
                 </button>
             </div>
 
-            {data && (
+            {(data && !data?.technical_review) && (
                 <>
                     {/* Top Grid */}
 
@@ -515,6 +519,76 @@ const PaperReviewPage: React.FC = () => {
                         </div>
                     )}
                 </>
+            )}
+
+            {data?.technical_review?.review_comments && (
+
+                <div className="mt-10 bg-surface-container rounded-2xl p-8 ghost-border">
+
+                    <div className="flex items-center gap-3 mb-6">
+
+                        <FileText className="text-primary" />
+
+                        <h3 className="font-bold text-2xl">
+                            Reviewer Comments
+                        </h3>
+
+                    </div>
+
+                    <div className="space-y-5">
+
+                        {data.technical_review.review_comments.map(
+                            (item: any) => (
+
+                                <div
+                                    key={item.id}
+                                    className="rounded-xl border border-white/10 p-5 bg-black/20"
+                                >
+
+                                    <div className="flex justify-between items-center mb-3">
+
+                                        <span className="font-semibold text-primary">
+                                            {item.category}
+                                        </span>
+
+                                        <span
+                                            className={`px-3 py-1 rounded-full text-xs font-semibold
+                                ${item.severity === "Critical"
+                                                    ? "bg-red-500/20 text-red-400"
+                                                    : item.severity === "Major"
+                                                        ? "bg-yellow-500/20 text-yellow-300"
+                                                        : "bg-blue-500/20 text-blue-300"
+                                                }`}
+                                        >
+                                            {item.severity}
+                                        </span>
+
+                                    </div>
+
+                                    <p className="text-gray-300 leading-7">
+                                        {item.comment}
+                                    </p>
+
+                                    <div className="mt-4 p-4 rounded-lg bg-primary/10 border border-primary/20">
+
+                                        <p className="text-primary font-medium mb-1">
+                                            Recommendation
+                                        </p>
+
+                                        <p className="text-sm text-gray-300">
+                                            {item.recommendation}
+                                        </p>
+
+                                    </div>
+
+                                </div>
+                            )
+                        )}
+
+                    </div>
+
+                </div>
+
             )}
         </main>
     );

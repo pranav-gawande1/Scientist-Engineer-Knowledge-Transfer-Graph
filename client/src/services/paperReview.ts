@@ -16,7 +16,6 @@ const handleResponse = async (response: Response) => {
       "Something went wrong"
     );
   }
-
   return data;
 };
 
@@ -47,6 +46,18 @@ export const reviewOnly = async (file: File) => {
 export const plagiarismOnly = async (file: File) => {
   const response = await fetch(
     `${API_URL}/paper-review/plagiarism-only`,
+    {
+      method: "POST",
+      body: createFormData(file),
+    }
+  );
+
+  return handleResponse(response);
+};
+
+export const technicalReviewOnly = async (file: File) => {
+  const response = await fetch(
+    `${API_URL}/paper-review/technical-review`,
     {
       method: "POST",
       body: createFormData(file),
