@@ -16,7 +16,7 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field, field_validator
 # from .service import _run_inference
 from .models import PaperInput, PredictionResponse, TextOnlyInput, BatchInput, BatchResponse
-from .HuggingFace.patent_model_client import predict_patent
+from .HuggingFace.patent_model_client import predict_patent,get_client
 
 patent_router = APIRouter(prefix="/api/model_predict", tags=["Model"])
 
@@ -124,7 +124,16 @@ def model_info():
 )
 def predict(paper: PaperInput):
 
+    log.info(f"[/predict] Incoming request: title={paper.title!r}")
+
     try:
+        log.info("[/predict] Getting HF client...")
+        client = get_client()
+        log.info(f"[/predict] Client obtained: {client}")
+
+        log.info("[/predict] Calling client.predict()...")
+        t0 = time.perf_counter()
+
         result = predict_patent(
             title=paper.title,
             abstract=paper.abstract,
@@ -138,10 +147,15 @@ def predict(paper: PaperInput):
             max_past_sim=paper.max_past_sim,
         )
 
+        elapsed = time.perf_counter() - t0
+        log.info(f"[/predict] Success in {elapsed:.2f}s. Result: {result}")
+
         return result
 
     except Exception as exc:
-        log.exception("Patent model request failed")
+        log.error(f"[/predict] FAILED with exception type: {type(exc).__name__}")
+        log.error(f"[/predict] Exception message: {str(exc)}")
+        log.exception("[/predict] Full traceback below:")
 
         raise HTTPException(
             status_code=502,

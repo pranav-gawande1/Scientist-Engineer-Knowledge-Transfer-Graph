@@ -1,10 +1,13 @@
-from pydantic import BaseModel 
-from typing import Optional 
+from pydantic import BaseModel
+
 class PipelineInput(BaseModel):
-    title: str 
-    abstract: Optional[str] = "" 
-    year: Optional[int] = 2000 
-    cited: Optional[int] = 0 
-    novelty: Optional[float] = 0.0 
-    source: Optional[str] = "unknown" 
-    keywords: Optional[str] = "" # ✅ ADD THIS
+    title: str
+    abstract: str
+    year: int
+    cited: int
+    novelty: float
+    source: str
+    keywords: str = ""
+    past_patent_cnt: int = 0
+    avg_past_sim: float = 0.0
+    max_past_sim: float = 0.0

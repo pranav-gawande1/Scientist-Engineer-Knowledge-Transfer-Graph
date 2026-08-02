@@ -41,18 +41,18 @@ log = logging.getLogger("patent_api")
 async def lifespan(app: FastAPI):
     """Load model artefacts once at startup; release on shutdown."""
     log.info("Loading model artefacts ...")
-    for path in [MODEL_PATH, SCALER_PATH, TFIDF_PATH, SVD_PATH, META_PATH]:
-        if not os.path.exists(path):
-            raise RuntimeError(
-                f"Artefact not found: {path}\n"
-                "Run  python patent_predictor_v4.py  first to train and save the model."
-            )
-    ARTS["model"]  = joblib.load(MODEL_PATH)
-    ARTS["scaler"] = joblib.load(SCALER_PATH)
-    ARTS["tfidf"]  = joblib.load(TFIDF_PATH)
-    ARTS["svd"]    = joblib.load(SVD_PATH)
-    ARTS["meta"]   = joblib.load(META_PATH)
-    ARTS["meta"]["threshold"] = 0.6
+    # for path in [MODEL_PATH, SCALER_PATH, TFIDF_PATH, SVD_PATH, META_PATH]:
+    #     if not os.path.exists(path):
+    #         raise RuntimeError(
+    #             f"Artefact not found: {path}\n"
+    #             "Run  python patent_predictor_v4.py  first to train and save the model."
+    #         )
+    # ARTS["model"]  = joblib.load(MODEL_PATH)
+    # ARTS["scaler"] = joblib.load(SCALER_PATH)
+    # ARTS["tfidf"]  = joblib.load(TFIDF_PATH)
+    # ARTS["svd"]    = joblib.load(SVD_PATH)
+    # ARTS["meta"]   = joblib.load(META_PATH)
+    # ARTS["meta"]["threshold"] = 0.6
     log.info("✓ Model artefacts loaded successfully.")
     yield
     ARTS.clear()
