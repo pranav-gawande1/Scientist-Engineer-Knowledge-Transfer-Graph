@@ -95,6 +95,9 @@ const formatRoadmap = (text: string) => {
 const BottlenecksPage: React.FC = () => {
   const [data, setData] = useState<any>(null);
   const [loading, setLoading] = useState(false);
+  const [loadingMsg, setLoadingMsg] = useState("");
+
+
 
   const [form, setForm] = useState({
     title: "",
@@ -115,27 +118,35 @@ const BottlenecksPage: React.FC = () => {
     });
   };
 
-  const fetchAnalysis = async () => {
-    setLoading(true);
-    try {
-      const res = await fetch(
-        "http://localhost:8000/api/pipeline/analyze",
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(form),
-        }
-      );
+ const fetchAnalysis = async () => {
+  setLoading(true);
+  setLoadingMsg("Analyzing paper...");
 
-      const result = await res.json();
-      setData(result);
-    } catch (err) {
-      console.error(err);
-    } finally {
-      setLoading(false);
-    }
-  };
+  // After 4s, assume it might be a cold start and update the message
+  const coldStartTimer = setTimeout(() => {
+    setLoadingMsg("Model is waking up — this can take up to a minute on first request...");
+  }, 4000);
 
+  try {
+    const res = await fetch(
+      "http://localhost:8000/api/pipeline/analyze",
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(form),
+      }
+    );
+
+    const result = await res.json();
+    setData(result);
+  } catch (err) {
+    console.error(err);
+    setLoadingMsg("Something went wrong. Please try again.");
+  } finally {
+    clearTimeout(coldStartTimer);
+    setLoading(false);
+  }
+};
   const roadmapSections = formatRoadmap(data?.roadmap);
 
   return (
@@ -168,9 +179,43 @@ const BottlenecksPage: React.FC = () => {
 
         <button
           onClick={fetchAnalysis}
-          className="mt-4 px-6 py-2 bg-blue-500 rounded"
+          disabled={loading}
+          className={`
+            mt-4 px-6 py-2.5 rounded-lg font-medium text-sm
+            flex items-center gap-2
+            transition-all duration-200
+            ${loading
+              ? "bg-blue-500/50 cursor-not-allowed text-blue-100"
+              : "bg-blue-500 hover:bg-blue-400 active:scale-95 text-white shadow-lg shadow-blue-500/20 hover:shadow-blue-500/30"
+            }
+          `}
         >
-          {loading ? "Analyzing..." : "Run Analysis"}
+          {loading ? (
+            <>
+              <svg
+                className="animate-spin h-4 w-4"
+                viewBox="0 0 24 24"
+                fill="none"
+              >
+                <circle
+                  className="opacity-25"
+                  cx="12"
+                  cy="12"
+                  r="10"
+                  stroke="currentColor"
+                  strokeWidth="4"
+                />
+                <path
+                  className="opacity-75"
+                  fill="currentColor"
+                  d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z"
+                />
+              </svg>
+              <span>{loadingMsg || "Analyzing..."}</span>
+            </>
+          ) : (
+            <span>Run Analysis</span>
+          )}
         </button>
       </div>
 
