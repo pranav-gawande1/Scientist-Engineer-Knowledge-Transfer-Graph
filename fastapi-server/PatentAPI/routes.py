@@ -14,8 +14,9 @@ from fastapi import FastAPI, HTTPException, Request, APIRouter
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field, field_validator
-from .service import _run_inference
+# from .service import _run_inference
 from .models import PaperInput, PredictionResponse, TextOnlyInput, BatchInput, BatchResponse
+from .HuggingFace.patent_model_client import predict_patent
 
 patent_router = APIRouter(prefix="/api/model_predict", tags=["Model"])
 
@@ -27,39 +28,39 @@ logging.basicConfig(
 )
 log = logging.getLogger("patent_api")
 
-# ── Artefact paths (override via env vars for Docker / cloud deploy) ─────────
-MODEL_PATH  = os.getenv("MODEL_PATH",  "outputs/patent_predictor_v4.pkl")
-SCALER_PATH = os.getenv("SCALER_PATH", "outputs/patent_scaler_v4.pkl")
-TFIDF_PATH  = os.getenv("TFIDF_PATH",  "outputs/patent_tfidf_v4.pkl")
-SVD_PATH    = os.getenv("SVD_PATH",    "outputs/patent_svd_v4.pkl")
-META_PATH   = os.getenv("META_PATH",   "outputs/patent_meta_v4.pkl")
+# # ── Artefact paths (override via env vars for Docker / cloud deploy) ─────────
+# MODEL_PATH  = os.getenv("MODEL_PATH",  "outputs/patent_predictor_v4.pkl")
+# SCALER_PATH = os.getenv("SCALER_PATH", "outputs/patent_scaler_v4.pkl")
+# TFIDF_PATH  = os.getenv("TFIDF_PATH",  "outputs/patent_tfidf_v4.pkl")
+# SVD_PATH    = os.getenv("SVD_PATH",    "outputs/patent_svd_v4.pkl")
+# META_PATH   = os.getenv("META_PATH",   "outputs/patent_meta_v4.pkl")
 
-# ── Global artefact store ────────────────────────────────────────────────────
-ARTS: dict = {}
+# # ── Global artefact store ────────────────────────────────────────────────────
+# ARTS: dict = {}
 
 # ══════════════════════════════════════════════════════════════
 # STARTUP / SHUTDOWN
 # ══════════════════════════════════════════════════════════════
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    """Load model artefacts once at startup; release on shutdown."""
-    log.info("Loading model artefacts ...")
-    for path in [MODEL_PATH, SCALER_PATH, TFIDF_PATH, SVD_PATH, META_PATH]:
-        if not os.path.exists(path):
-            raise RuntimeError(
-                f"Artefact not found: {path}\n"
-                "Run  python patent_predictor_v4.py  first to train and save the model."
-            )
-    ARTS["model"]  = joblib.load(MODEL_PATH)
-    ARTS["scaler"] = joblib.load(SCALER_PATH)
-    ARTS["tfidf"]  = joblib.load(TFIDF_PATH)
-    ARTS["svd"]    = joblib.load(SVD_PATH)
-    ARTS["meta"]   = joblib.load(META_PATH)
-    ARTS["meta"]["threshold"] = 0.6
-    log.info("✓ Model artefacts loaded successfully.")
-    yield
-    ARTS.clear()
-    log.info("Artefacts released.")
+# @asynccontextmanager
+# async def lifespan(app: FastAPI):
+#     """Load model artefacts once at startup; release on shutdown."""
+#     log.info("Loading model artefacts ...")
+#     for path in [MODEL_PATH, SCALER_PATH, TFIDF_PATH, SVD_PATH, META_PATH]:
+#         if not os.path.exists(path):
+#             raise RuntimeError(
+#                 f"Artefact not found: {path}\n"
+#                 "Run  python patent_predictor_v4.py  first to train and save the model."
+#             )
+#     ARTS["model"]  = joblib.load(MODEL_PATH)
+#     ARTS["scaler"] = joblib.load(SCALER_PATH)
+#     ARTS["tfidf"]  = joblib.load(TFIDF_PATH)
+#     ARTS["svd"]    = joblib.load(SVD_PATH)
+#     ARTS["meta"]   = joblib.load(META_PATH)
+#     ARTS["meta"]["threshold"] = 0.6
+#     log.info("✓ Model artefacts loaded successfully.")
+#     yield
+#     ARTS.clear()
+#     log.info("Artefacts released.")
 # ══════════════════════════════════════════════════════════════
 # MIDDLEWARE — request timing
 # ══════════════════════════════════════════════════════════════
@@ -78,29 +79,18 @@ async def lifespan(app: FastAPI):
 
 @patent_router.get("/health", tags=["System"])
 def health():
-    """Liveness check — returns model version and cutoff year."""
-    meta = ARTS.get("meta", {})
     return {
-        "status":      "ok",
-        "model":       "patent_predictor_v4",
-        "cutoff_year": meta.get("cutoff_year"),
-        # "threshold":   meta.get("threshold"),
-        "artefacts_loaded": len(ARTS) == 5,
+        "status": "ok",
+        "model": "patent_predictor_v4",
+        "provider": "huggingface_space",
     }
 
 
 @patent_router.get("/model/info", tags=["System"])
 def model_info():
-    """Full model metadata: features, thresholds, and test-set metrics."""
-    meta = ARTS.get("meta", {})
     return {
-        "struct_features": meta.get("struct_features", []),
-        "svd_components":  meta.get("svd_components"),
-        "top_sim_threshold": meta.get("top_sim"),
-        "bot_sim_threshold": meta.get("bot_sim"),
-        # "decision_threshold": meta.get("threshold"),
-        "cutoff_year":     meta.get("cutoff_year"),
-        "test_metrics":    meta.get("test_metrics", {}),
+        "model": "patent_predictor_v4",
+        "provider": "huggingface_space",
     }
 # @patent_router.post("/predict", response_model=PredictionResponse, tags=["Prediction"])
 # def predict(paper: PaperInput):
@@ -125,7 +115,6 @@ def model_info():
 #     )
 #     return result
 
-from .HuggingFace.patent_model_client import predict_patent
 
 
 @patent_router.post(
@@ -160,48 +149,92 @@ def predict(paper: PaperInput):
         ) from exc
 
 
-@patent_router.post("/predict/text", response_model=PredictionResponse, tags=["Prediction"])
+@patent_router.post(
+    "/predict/text",
+    response_model=PredictionResponse,
+    tags=["Prediction"],
+)
 def predict_text(inp: TextOnlyInput):
-    """
-    Text-only prediction — supply just title, abstract, and keywords.
 
-    All structured metadata (year, citations, novelty, etc.) default to zero.
-    Ideal for quickly screening papers when only the text is available.
-    """
-    paper = PaperInput(
-        title=inp.title,
-        abstract=inp.abstract,
-        keywords=inp.keywords,
-    )
-    t0     = time.perf_counter()
-    result = _run_inference(paper)
-    result["latency_ms"] = round((time.perf_counter() - t0) * 1000, 2)
-    log.info(
-        f"/predict/text  prob={result['probability']:.3f}  "
-        f"conf={result['confidence']}  {result['latency_ms']}ms"
-    )
-    return result
+    try:
+        result = predict_patent(
+            title=inp.title,
+            abstract=inp.abstract,
+            keywords=inp.keywords,
+            year=2005,
+            cited=0,
+            novelty=0.0,
+            source="unknown",
+            past_patent_cnt=0,
+            avg_past_sim=0.0,
+            max_past_sim=0.0,
+        )
+
+        return result
+
+    except Exception as exc:
+        log.exception("Patent model request failed")
+
+        raise HTTPException(
+            status_code=502,
+            detail="Patent prediction service is unavailable.",
+        ) from exc
 
 
-@patent_router.post("/predict/batch", response_model=BatchResponse, tags=["Prediction"])
+@patent_router.post(
+    "/predict/batch",
+    response_model=BatchResponse,
+    tags=["Prediction"],
+)
 def predict_batch(batch: BatchInput):
-    """
-    Batch prediction — submit up to 100 papers in a single request.
 
-    Each paper uses the same full schema as /predict.
-    Results are returned in the same order as the input list.
-    """
-    t0      = time.perf_counter()
+    t0 = time.perf_counter()
     results = []
-    for paper in batch.papers:
-        t1     = time.perf_counter()
-        result = _run_inference(paper)
-        result["latency_ms"] = round((time.perf_counter() - t1) * 1000, 2)
-        results.append(result)
 
-    total_ms = round((time.perf_counter() - t0) * 1000, 2)
-    log.info(f"/predict/batch  n={len(results)}  total={total_ms}ms")
-    return {"count": len(results), "results": results, "total_ms": total_ms}
+    try:
+        for paper in batch.papers:
+
+            t1 = time.perf_counter()
+
+            result = predict_patent(
+                title=paper.title,
+                abstract=paper.abstract,
+                keywords=paper.keywords,
+                year=paper.year,
+                cited=paper.cited,
+                novelty=paper.novelty,
+                source=paper.source,
+                past_patent_cnt=paper.past_patent_cnt,
+                avg_past_sim=paper.avg_past_sim,
+                max_past_sim=paper.max_past_sim,
+            )
+
+            result["latency_ms"] = round(
+                (time.perf_counter() - t1) * 1000,
+                2,
+            )
+
+            results.append(result)
+
+    except Exception as exc:
+
+        log.exception("Patent batch prediction request failed")
+
+        raise HTTPException(
+            status_code=502,
+            detail="Patent prediction service is unavailable.",
+        ) from exc
+
+    total_ms = round(
+        (time.perf_counter() - t0) * 1000,
+        2,
+    )
+
+    return {
+        "count": len(results),
+        "results": results,
+        "total_ms": total_ms,
+    }
 
 
 # ══════════════════════════════════════════════════════════════
